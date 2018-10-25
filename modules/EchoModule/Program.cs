@@ -1,24 +1,21 @@
 namespace EchoModule
 {
+    using Microsoft.Azure.Devices.Client;
     using System;
-    using System.IO;
-    using System.Runtime.InteropServices;
     using System.Runtime.Loader;
-    using System.Security.Cryptography.X509Certificates;
     using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
-    using Microsoft.Azure.Devices.Client;
 
-    class Program
+    public class Program
     {
-        static int counter;
+        private static int _counter;
 
-        static void Main(string[] args)
+        public static void Main(string[] args)
         {
             Init().Wait();
 
-            // Wait until the app unloads or is cancelled
+            // 持續運行，直到此模組應用程式被移除或取消
             var cts = new CancellationTokenSource();
             AssemblyLoadContext.Default.Unloading += (ctx) => cts.Cancel();
             Console.CancelKeyPress += (sender, cpe) => cts.Cancel();
@@ -26,50 +23,46 @@ namespace EchoModule
         }
 
         /// <summary>
-        /// Handles cleanup operations when app is cancelled or unloads
+        /// 當模組應用程式被移除或取消時，執行清理程序
         /// </summary>
         public static Task WhenCancelled(CancellationToken cancellationToken)
         {
             var tcs = new TaskCompletionSource<bool>();
             cancellationToken.Register(s => ((TaskCompletionSource<bool>)s).SetResult(true), tcs);
+
             return tcs.Task;
         }
 
         /// <summary>
-        /// Initializes the ModuleClient and sets up the callback to receive
-        /// messages containing temperature information
+        /// 初始化 ModuleClient 並設置回調函數 (PipeMessage) 以接收包含溫度信息的消息
         /// </summary>
-        static async Task Init()
+        private static async Task Init()
         {
-            AmqpTransportSettings amqpSetting = new AmqpTransportSettings(TransportType.Amqp_Tcp_Only);
-            ITransportSettings[] settings = { amqpSetting };
-
-            // Open a connection to the Edge runtime
-            ModuleClient ioTHubModuleClient = await ModuleClient.CreateFromEnvironmentAsync(settings);
+            // 建立連線至 Edge runtime 的客戶端
+            var ioTHubModuleClient = await ModuleClient.CreateFromEnvironmentAsync(TransportType.Amqp_Tcp_Only);
             await ioTHubModuleClient.OpenAsync();
-            Console.WriteLine("IoT Hub module client initialized.");
+            Console.WriteLine("IoT Hub 模組客戶端已初始化。");
 
-            // Register callback to be called when a message is received by the module
+            // 註冊回調函數，使模組接收到訊息後可以執行該函數功能
             await ioTHubModuleClient.SetInputMessageHandlerAsync("input1", PipeMessage, ioTHubModuleClient);
         }
 
         /// <summary>
-        /// This method is called whenever the module is sent a message from the EdgeHub. 
-        /// It just pipe the messages without any change.
-        /// It prints all the incoming messages.
+        /// 只要此模組從 EdgeHub 發送訊息，就會呼叫此方法
+        /// 此方法只會將訊息印出來並傳遞給下一個接收端，資料不會做任何改變
         /// </summary>
-        static async Task<MessageResponse> PipeMessage(Message message, object userContext)
+        private static async Task<MessageResponse> PipeMessage(Message message, object userContext)
         {
-            int counterValue = Interlocked.Increment(ref counter);
-
+            var counterValue = Interlocked.Increment(ref _counter);
             var moduleClient = userContext as ModuleClient;
+
             if (moduleClient == null)
             {
-                throw new InvalidOperationException("UserContext doesn't contain " + "expected values");
+                throw new InvalidOperationException("UserContext doesn't contain expected values");
             }
 
-            byte[] messageBytes = message.GetBytes();
-            string messageString = Encoding.UTF8.GetString(messageBytes);
+            var messageBytes = message.GetBytes();
+            var messageString = Encoding.UTF8.GetString(messageBytes);
             Console.WriteLine($"Received message: {counterValue}, Body: [{messageString}]");
 
             if (!string.IsNullOrEmpty(messageString))
@@ -82,6 +75,7 @@ namespace EchoModule
                 await moduleClient.SendEventAsync("output1", pipeMessage);
                 Console.WriteLine("Received message sent");
             }
+
             return MessageResponse.Completed;
         }
     }
